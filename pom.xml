@@ -21,6 +21,18 @@
 			<version>3.8.1</version>
 			<scope>test</scope>
 		</dependency>
+		<!--
+		<dependency>
+			<groupId>org.apache.hadoop</groupId>
+			<artifactId>hadoop-core</artifactId>
+			<version>1.0.3</version>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.hadoop</groupId>
+			<artifactId>hadoop-tools</artifactId>
+			<version>1.0.3</version>
+		</dependency>
+		-->
 		<dependency>
 			<groupId>org.apache.hadoop</groupId>
 			<artifactId>hadoop-common</artifactId>
@@ -46,6 +58,7 @@
 			<artifactId>hadoop-core</artifactId>
 			<version>2.0.0-mr1-cdh4.6.0</version>
 		</dependency>
+		
 		<dependency>
 			<groupId>hadoop-lzo</groupId>
 			<artifactId>hadoop-lzo</artifactId>

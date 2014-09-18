@@ -46,7 +46,7 @@ public class ViewMapper extends Mapper<LongWritable, Text, TextPair, Text> {
 			throws IOException, InterruptedException {
 
 		String line = value.toString().trim();
-		String[] fields = line.split(",");
+		String[] fields = line.split("\t");
 		if (fields.length < 5) {
 			return;
 		}
