@@ -1,6 +1,7 @@
 package com.ismartv.statistics.conversions;
 
 import java.io.IOException;
+import java.io.StringWriter;
 import java.util.HashMap;
 import java.util.Map.Entry;
 
@@ -45,8 +46,11 @@ public class ViewReducer extends Reducer<TextPair, Text, Text, NullWritable> {
 			// 分类猜你喜欢统计数据已计入列表统计数据
 			// 所以这里不要把分类猜你喜欢统计数据计入总计数据
 
-			String json = new ObjectMapper().writeValueAsString(statisticsData);
-			context.write(new Text(device + "\u0001" + json),
+			StringWriter buf = new StringWriter();
+			// String json = new
+			// ObjectMapper().writeValueAsString(statisticsData);
+			new ObjectMapper().writeValue(buf, statisticsData);
+			context.write(new Text(device + "\u0001" + buf.toString()),
 					NullWritable.get());
 		}
 	}
@@ -75,11 +79,16 @@ public class ViewReducer extends Reducer<TextPair, Text, Text, NullWritable> {
 
 		UserOperation userOperation = new UserOperation();
 
+		// 是否处于“猜你喜欢”
+		boolean isInGuess = false;
+
 		for (Text text : values) {
 			// String ts = key.getSecond().toString();
 			REPORT_EVENT rEvent = REPORT_EVENT.valueOf(text.toString());
 
 			if (rEvent.getType() == REPORT_EVENT_TYPE.IN) {
+				// 是否点击“猜你喜欢”section
+				boolean isGuessIn = false;
 				switch (rEvent) {
 				case EVENT_VIDEO_DETAIL_IN:
 					// 详情页进入事件，即触发详情页的相关统计和详情页触发播放的统计
@@ -165,12 +174,39 @@ public class ViewReducer extends Reducer<TextPair, Text, Text, NullWritable> {
 					userOperation.guessAllUv = true;
 					// 分类猜你喜欢的统计数据同时计入列表统计数据
 					// 因此不要break
+
+					// 进入“猜你喜欢”
+					isInGuess = true;
+					// 点击“猜你喜欢”section
+					isGuessIn = true;
 				case EVENT_VIDEO_CATEGORY_IN:
 					// 进入分类列表
+
+					if (!isGuessIn) {
+						// 点击的不是“猜你喜欢”section，则不在“猜你喜欢”section
+						isInGuess = false;
+					}
 				case EVENT_VIDEO_CHANNEL_IN:
 					// 进入频道列表
 					statisticsData.listAllPv++;
 					userOperation.listAllUv = true;
+					if (isInGuess
+							&& lastEvent != REPORT_EVENT.EVENT_LAUNCHER_VOD_CLICK) {
+						// 如果最后一次在列表页时是处于“猜你喜欢”section，
+						// 并且不是从首页点击进入列表页，则表示是从其他模块(如详情页)进入列表页
+						// 则把当前事件模拟为进入“猜你喜欢”section事件
+						if (rEvent != REPORT_EVENT.EVENT_VIDEO_CATEGORY_GUESS_IN) {
+							// 如果当前事件不是进入分类猜你喜欢
+							// 则把当前事件模拟为进入“猜你喜欢”section事件，并累加“猜你喜欢”的计数
+							rEvent = REPORT_EVENT.EVENT_VIDEO_CATEGORY_GUESS_IN;
+							statisticsData.guessAllPv++;
+							userOperation.guessAllUv = true;
+						}
+					} else {
+						// 从首页点击进入列表页，默认section不为“猜你喜欢”section
+						// 最后一次在列表页时不是处于“猜你喜欢”section，则当前section不为“猜你喜欢”section
+						isInGuess = false;
+					}
 					break;
 				case EVENT_VIDEO_FILTER_IN:
 					// 进入分类过滤
@@ -304,6 +340,9 @@ public class ViewReducer extends Reducer<TextPair, Text, Text, NullWritable> {
 					userOperation.historyAllUv = true;
 					lastEvent = rEvent;
 					break;
+				case EVENT_LAUNCHER_VOD_CLICK:
+					// 标记从首页点击频道进入分类
+					lastEvent = rEvent;
 				default:
 					break;
 				}
