@@ -1,13 +1,9 @@
 package com.ismartv.statistics.conversions;
 
 import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.io.OutputStream;
 import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -22,6 +18,7 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.PathFilter;
 import org.apache.hadoop.hbase.KeyValue;
+import org.apache.hadoop.hbase.client.HTable;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.io.NullWritable;
@@ -110,7 +107,9 @@ public class ViewJob extends Configured implements Tool {
 				+ mapStatisticsData.size());
 
 		// TODO test not hbase
-		// HTable hTable = new HTable(conf, outHbaseTableName);
+		conf.set("hbase.master", "hadoopns410:60000");
+		conf.set("hbase.zookeeper.quorum", "hadoopns410");
+		HTable hTable = new HTable(conf, outHbaseTableName);
 		long ts = System.currentTimeMillis();
 		ArrayList<Put> lstPut = new ArrayList<Put>(mapStatisticsData.size());
 		for (Entry<String, StatisticsData> entry : mapStatisticsData.entrySet()) {
@@ -123,8 +122,8 @@ public class ViewJob extends Configured implements Tool {
 			lstPut.add(put);
 		}
 
-		// hTable.put(lstPut);
-		// hTable.close();
+		hTable.put(lstPut);
+		hTable.close();
 
 		for (Put p : lstPut) {
 			Map<byte[], List<KeyValue>> map = p.getFamilyMap();
