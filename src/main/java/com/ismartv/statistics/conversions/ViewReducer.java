@@ -403,6 +403,8 @@ public class ViewReducer extends Reducer<TextPair, Text, Text, NullWritable> {
 						userOperation.filterPlayUv = true;
 						break;
 					default:
+						// 无来源播放事件，如来源在零点之前播放在零点之后
+						statisticsData.allPv++;
 						break;
 					}
 				} else if (rEvent == REPORT_EVENT.EVENT_LIVE_PLAY_LOAD) {
