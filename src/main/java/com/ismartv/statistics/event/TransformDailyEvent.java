@@ -1,18 +1,32 @@
 package com.ismartv.statistics.event;
 
 import java.io.BufferedReader;
-import java.io.BufferedWriter;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.FileReader;
-import java.io.OutputStreamWriter;
+import java.io.InputStreamReader;
+import java.util.ArrayList;
+import java.util.List;
+
+import org.apache.hadoop.conf.Configured;
+import org.apache.hadoop.fs.FSDataOutputStream;
+import org.apache.hadoop.fs.FileStatus;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.util.Tool;
+import org.apache.hadoop.util.ToolRunner;
 
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 
-public class Json2Hive {
+public class TransformDailyEvent extends Configured implements Tool {
 
 	public static final String TABLE_SEPERATOR = "\t";
+
+	@Override
+	public int run(String[] args) throws Exception {
+		execute(args[0], args[1], args[2]);
+		return 0;
+	}
 
 	/**
 	 * read the source log file and transform to hive structure file and move
@@ -31,104 +45,113 @@ public class Json2Hive {
 			throw new Exception("source path is invalid!");
 		}
 
-		File fileSource = new File(filePath, date);
-		if (!fileSource.exists() || !fileSource.isDirectory()) {
-			throw new Exception("source path is invalid!");
+		// hdfs
+		FileSystem hdfs = FileSystem.get(getConf());
+		Path hdfspath = new Path(resultPath, "parsets=" + date);
+		if (!hdfs.exists(hdfspath)) {
+			hdfs.mkdirs(hdfspath);
 		}
+		FileStatus[] hdfsFileStatus = hdfs.listStatus(hdfspath);
 
-		File fileArchive = new File(filePath, "archive");
-		if (!fileArchive.exists()) {
-			fileArchive.mkdirs();
-		}
+		// local file
+		File[] localFiles = filePath.listFiles();
 
-		// archive file
-		File archiveFile = new File(fileArchive, date);
-		if (!archiveFile.exists()) {
-			archiveFile.mkdirs();
-		}
-
-		// crate result file
-		File resultFile = new File(resultPath, date + ".result");
-
-		try (FileOutputStream fileOutputStream = new FileOutputStream(
-				resultFile, true);
-				OutputStreamWriter outputStreamWriter = new OutputStreamWriter(
-						fileOutputStream, "UTF-8");
-				BufferedWriter bufferedWriter = new BufferedWriter(
-						outputStreamWriter);) {
-			File[] files = fileSource.listFiles();
-			for (File f : files) {
-				transformJson(f.getAbsolutePath(), bufferedWriter);
-				f.renameTo(new File(archiveFile, f.getName()));
+		boolean flag = false;
+		String localFileName = null;
+		String hdfsFileName = null;
+		for (int i = 0; i < localFiles.length; i++) {
+			localFileName = localFiles[i].getName();
+			for (int j = 0; j < hdfsFileStatus.length; j++) {
+				hdfsFileName = hdfsFileStatus[j].getPath().getName();
+				if (localFileName != null && localFileName.equals(hdfsFileName)) {
+					flag = true;
+					break;
+				}
+			}
+			if (flag == true) {
+				flag = false;
+				continue;
+			} else {
+				readLocalLogAndWriteToHive(localFiles[i].getAbsolutePath(),
+						new Path(hdfspath, localFileName), hdfs);
 			}
 		}
+		//
+		Process p = null;
+		BufferedReader bufferedReader = null;
+		String line = null;
+		List<String> checkCommands = new ArrayList<>();
+		checkCommands.add("hive");
+		checkCommands.add("-e");
+		checkCommands.add("show partitions daily_event");
+
+		p = new ProcessBuilder(checkCommands).start();
+		bufferedReader = new BufferedReader(new InputStreamReader(
+				p.getInputStream()));
+		// 检查分区是否存在
+		while ((line = bufferedReader.readLine()) != null) {
+			if (line.equals("parsets=" + date)) {
+				return;
+			}
+		}
+
+		String cmd = "alter table daily_event add partition (parsets='" + date
+				+ "') location '" + hdfspath.toString() + "'";
+
+		List<String> commands = new ArrayList<>();
+		commands.add("hive");
+		commands.add("-e");
+		commands.add(cmd);
+		// 添加分区
+		p = new ProcessBuilder(commands).start();
 	}
 
-	/**
-	 * read source file and write result file
-	 * 
-	 * @param path
-	 * @param bufferedWriter
-	 * @throws Exception
-	 */
-	private void transformJson(String path, BufferedWriter bufferedWriter)
-			throws Exception {
+	private void readLocalLogAndWriteToHive(String localPath, Path hdfsPath,
+			FileSystem hdfs) throws Exception {
 		// read source file
-		File file = new File(path);
-
+		File file = new File(localPath);
+		hdfs.createNewFile(hdfsPath);
 		try (BufferedReader bufferedReader = new BufferedReader(new FileReader(
-				file));) {
+				file));
+				FSDataOutputStream fsDataOutputStream = hdfs.create(hdfsPath)) {
 			String line = null;
 
 			while ((line = bufferedReader.readLine()) != null) {
-				String hiveStr = jsonString2Hive(line);
-				bufferedWriter.write(hiveStr);
-				bufferedWriter.newLine();
+				String hiveStr = log2Hive(line);
+				if (hiveStr != null) {
+					fsDataOutputStream.write(hiveStr.getBytes());
+				}
 			}
 		}
 	}
 
-	/**
-	 * transform json to hive string
-	 * 
-	 * @param jsonString
-	 * @return
-	 * @throws Exception
-	 */
-	private String jsonString2Hive(String jsonString) throws Exception {
-		if (jsonString == null || jsonString.trim().length() <= 0) {
+	private String log2Hive(String logString) throws Exception {
+		if (logString == null || logString.trim().length() <= 0) {
 			throw new Exception("jsonString is invalid!");
 		}
 
-		JSONObject jsonObject = JSON.parseObject(jsonString);
+		String[] parts = logString.substring(0, logString.indexOf("{") - 1)
+				.split(" ");
+		String jsonString = logString.substring(logString.indexOf("{"));
+
+		String ts = parts[0];
+		String token = parts[1];
+		if (token == null || token.equals("-")) {
+			return null;
+		}
+		String device = parts[2];
+		String sn = parts[3];
+		String event = parts[4];
+		String ip = parts[5];
 
 		StringBuffer stringBuffer = new StringBuffer();
+		stringBuffer.append(ts).append(TABLE_SEPERATOR).append(device)
+				.append(TABLE_SEPERATOR).append(sn).append(TABLE_SEPERATOR)
+				.append(token).append(TABLE_SEPERATOR).append(event)
+				.append(TABLE_SEPERATOR).append(ip).append(TABLE_SEPERATOR);
+
+		JSONObject jsonObject = JSON.parseObject(jsonString);
 		String tmp = null;
-
-		// column:ts
-		tmp = jsonObject.getString("time");
-		stringBuffer.append(tmp == null ? "" : tmp.substring(8)).append(
-				TABLE_SEPERATOR);
-
-		// column:device
-		tmp = jsonObject.getString("_device");
-		stringBuffer.append(tmp == null ? "" : tmp).append(TABLE_SEPERATOR);
-
-		// column:sn
-		tmp = jsonObject.getString("sn");
-		stringBuffer.append(tmp == null ? "" : tmp).append(TABLE_SEPERATOR);
-
-		// column:token
-		tmp = jsonObject.getString("token");
-		stringBuffer.append(tmp == null ? "" : tmp).append(TABLE_SEPERATOR);
-
-		// column:event
-		tmp = jsonObject.getString("event");
-		stringBuffer.append(tmp == null ? "" : tmp).append(TABLE_SEPERATOR);
-
-		// column:ip
-		tmp = jsonObject.getString("ip");
-		stringBuffer.append(tmp == null ? "" : tmp).append(TABLE_SEPERATOR);
 
 		// column:duration
 		tmp = jsonObject.getString("duration");
@@ -205,17 +228,19 @@ public class Json2Hive {
 
 		// column:data7;
 		tmp = jsonObject.getString("userid");
-		stringBuffer.append(tmp == null ? "" : tmp).append(TABLE_SEPERATOR);
+		stringBuffer.append(tmp == null ? "" : tmp).append("\n");
 
 		return stringBuffer.toString();
 	}
 
 	public static void main(String[] args) throws Exception {
-		// String path = "D:\\work\\test\\home\\deploy\\statistics_event_daily";
-		// String resultPath = "D:\\work\\test\\home\\deploy\\result";
-		// String date = "20140917";
-		// new CopyOfJson2Hive().execute(path, resultPath, date);
-
+		if (args == null || args.length != 3) {
+			System.out
+					.println("Usage: UserLogItemCFRecommend <inputPath> <outputPath> <date>");
+			System.exit(-1);
+		}
+		int exitCode = -1;
+		exitCode = ToolRunner.run(new TransformDailyEvent(), args);
+		System.exit(exitCode);
 	}
-
 }
