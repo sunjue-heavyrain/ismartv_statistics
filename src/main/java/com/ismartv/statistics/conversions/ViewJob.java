@@ -74,6 +74,8 @@ public class ViewJob extends Configured implements Tool {
 		job.setOutputKeyClass(Text.class);
 		job.setOutputValueClass(NullWritable.class);
 
+		job.setNumReduceTasks(5);
+
 		long l = System.currentTimeMillis();
 		boolean tf = false;
 		try {
@@ -136,6 +138,13 @@ public class ViewJob extends Configured implements Tool {
 				}
 			}
 		}
+
+		Path currDatePath = new Path(outRootPath, String.valueOf(System
+				.currentTimeMillis()));
+		if (fileSystem.exists(currDatePath)) {
+			fileSystem.delete(currDatePath, true);
+		}
+		fileSystem.rename(outputPath, currDatePath);
 
 		return 0;
 	}
@@ -698,6 +707,10 @@ public class ViewJob extends Configured implements Tool {
 		if (args == null || args.length != 4) {
 			System.out
 					.println("Usage: java com.ismartv.statistics.views.ViewJob date hive_input_path_partition temp_output_path out_hbase_table");
+			for (String string : args) {
+				System.out.println("args=" + string);
+			}
+			return;
 		}
 		int exitCode = -1;
 		try {
