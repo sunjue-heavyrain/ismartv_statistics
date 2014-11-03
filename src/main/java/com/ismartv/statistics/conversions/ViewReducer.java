@@ -67,7 +67,7 @@ public class ViewReducer extends Reducer<TextPair, Text, Text, NullWritable> {
 		String device = keyFirst.substring(0, idx);
 		// String sn = keyFirst.substring(idx + 1);
 
-		REPORT_EVENT lastEvent = null;
+		REPORT_EVENT lastEvent = REPORT_EVENT.EVENT_UNKNOWN;
 
 		StatisticsData statisticsData = mapStatisticsData.get(device);
 		if (statisticsData == null) {
