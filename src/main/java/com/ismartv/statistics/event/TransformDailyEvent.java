@@ -2,31 +2,27 @@ package com.ismartv.statistics.event;
 
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileReader;
+import java.io.FileInputStream;
 import java.io.InputStreamReader;
-import java.util.ArrayList;
-import java.util.List;
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.Statement;
+import java.text.SimpleDateFormat;
 
-import org.apache.hadoop.conf.Configured;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataOutputStream;
-import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.util.Tool;
-import org.apache.hadoop.util.ToolRunner;
 
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
+import com.ismartv.util.HiveConnection;
 
-public class TransformDailyEvent extends Configured implements Tool {
+public class TransformDailyEvent {
+
+	public static SimpleDateFormat dateFormat = new SimpleDateFormat("HHmmss");
 
 	public static final String TABLE_SEPERATOR = "\t";
-
-	@Override
-	public int run(String[] args) throws Exception {
-		execute(args[0], args[1], args[2]);
-		return 0;
-	}
 
 	/**
 	 * read the source log file and transform to hive structure file and move
@@ -34,95 +30,99 @@ public class TransformDailyEvent extends Configured implements Tool {
 	 * 
 	 * @param path
 	 * @param resultPath
-	 * @param date
+	 * @param runDate
+	 *            format as 2014-10-31 01:59:52
 	 * @throws Exception
 	 */
-	public void execute(String path, String resultPath, String date)
+	public void execute(String path, String resultPath, String runDate)
 			throws Exception {
 
 		File filePath = new File(path);
-		if (!filePath.exists() || !filePath.isDirectory()) {
+		if (!filePath.exists()) {
 			throw new Exception("source path is invalid!");
 		}
 
+		String[] dateString = runDate.split(" ");
+		String day = dateString[0].replace("-", "_");
+		String hour = dateString[1].substring(0, 2);
+
+		// 按跑数时间构造源文件
+		File sourceFile = new File(new File(path, "data_" + day), "data_" + day
+				+ "_" + hour + ".log");
+
+		if (!sourceFile.exists()) {
+			throw new Exception("sourceFile is invalid");
+		}
+
 		// hdfs
-		FileSystem hdfs = FileSystem.get(getConf());
-		Path hdfspath = new Path(resultPath, "parsets=" + date);
+		Configuration configuration = new Configuration();
+		configuration.set("fs.defaultFS", "hdfs://10.0.4.10");
+		configuration.set("mapred.job.tracker", "10.0.4.10:8021");
+
+		FileSystem hdfs = FileSystem.get(configuration);
+
+		String anothorDate = day.replace("_", "");
+		Path hdfspath = new Path(resultPath, "parsets=" + anothorDate);
 		if (!hdfs.exists(hdfspath)) {
 			hdfs.mkdirs(hdfspath);
 		}
-		FileStatus[] hdfsFileStatus = hdfs.listStatus(hdfspath);
 
-		// local file
-		File[] localFiles = filePath.listFiles();
+		// 读源文件并写入hdfs
+		readLocalLogAndWriteToHive(sourceFile,
+				new Path(hdfspath, sourceFile.getName()), hdfs);
 
-		boolean flag = false;
-		String localFileName = null;
-		String hdfsFileName = null;
-		for (int i = 0; i < localFiles.length; i++) {
-			localFileName = localFiles[i].getName();
-			for (int j = 0; j < hdfsFileStatus.length; j++) {
-				hdfsFileName = hdfsFileStatus[j].getPath().getName();
-				if (localFileName != null && localFileName.equals(hdfsFileName)) {
-					flag = true;
-					break;
+		Connection conn = null;
+		try {
+			// 使用jdbc连接hive
+			conn = HiveConnection.getHiveConnection();
+			Statement statement = conn.createStatement();
+			ResultSet resultSet = statement
+					.executeQuery("show partitions daily_event");
+
+			// 检查分区是否存在
+			while (resultSet.next()) {
+				if (resultSet.getString(1).equals("parsets=" + anothorDate)) {
+					return;
 				}
 			}
-			if (flag == true) {
-				flag = false;
-				continue;
-			} else {
-				readLocalLogAndWriteToHive(localFiles[i].getAbsolutePath(),
-						new Path(hdfspath, localFileName), hdfs);
-			}
+			String cmd = "alter table daily_event add partition (parsets='"
+					+ anothorDate + "') location '" + hdfspath.toString() + "'";
+			statement.execute(cmd);
+		} catch (Exception e) {
+			throw e;
+		} finally {
+			HiveConnection.close();
 		}
-		//
-		Process p = null;
-		BufferedReader bufferedReader = null;
-		String line = null;
-		List<String> checkCommands = new ArrayList<>();
-		checkCommands.add("hive");
-		checkCommands.add("-e");
-		checkCommands.add("show partitions daily_event");
-
-		p = new ProcessBuilder(checkCommands).start();
-		bufferedReader = new BufferedReader(new InputStreamReader(
-				p.getInputStream()));
-		// 检查分区是否存在
-		while ((line = bufferedReader.readLine()) != null) {
-			if (line.equals("parsets=" + date)) {
-				return;
-			}
-		}
-
-		String cmd = "alter table daily_event add partition (parsets='" + date
-				+ "') location '" + hdfspath.toString() + "'";
-
-		List<String> commands = new ArrayList<>();
-		commands.add("hive");
-		commands.add("-e");
-		commands.add(cmd);
-		// 添加分区
-		p = new ProcessBuilder(commands).start();
 	}
 
-	private void readLocalLogAndWriteToHive(String localPath, Path hdfsPath,
+	private void readLocalLogAndWriteToHive(File file, Path hdfsPath,
 			FileSystem hdfs) throws Exception {
 		// read source file
-		File file = new File(localPath);
+		int countRows = 0;
+		int skipRows = 0;
+		if (hdfs.exists(hdfsPath)) {
+			throw new Exception("hdfs file exist");
+		}
 		hdfs.createNewFile(hdfsPath);
-		try (BufferedReader bufferedReader = new BufferedReader(new FileReader(
-				file));
+		try (BufferedReader bufferedReader = new BufferedReader(
+				new InputStreamReader(new FileInputStream(file), "UTF-8"));
+		// new BufferedReader(new FileReader(file));
 				FSDataOutputStream fsDataOutputStream = hdfs.create(hdfsPath)) {
 			String line = null;
 
 			while ((line = bufferedReader.readLine()) != null) {
 				String hiveStr = log2Hive(line);
-				if (hiveStr != null) {
-					fsDataOutputStream.write(hiveStr.getBytes());
+				if (hiveStr == null) {
+					skipRows++;
+					continue;
 				}
+				fsDataOutputStream.write(hiveStr.getBytes("UTF-8"));
+				countRows++;
 			}
 		}
+		System.out.println("sourceFile:" + file.getAbsolutePath()
+				+ " targetFile:" + hdfsPath.toString() + " countRows="
+				+ countRows + " skipRows=" + skipRows);
 	}
 
 	private String log2Hive(String logString) throws Exception {
@@ -130,11 +130,20 @@ public class TransformDailyEvent extends Configured implements Tool {
 			throw new Exception("jsonString is invalid!");
 		}
 
+		if (logString.indexOf("{") - 1 <= 0) {
+			return null;
+		}
+
 		String[] parts = logString.substring(0, logString.indexOf("{") - 1)
 				.split(" ");
 		String jsonString = logString.substring(logString.indexOf("{"));
 
-		String ts = parts[0];
+		// 过滤掉不规则的数据
+		if (parts.length != 6) {
+			return null;
+		}
+
+		String ts = dateFormat.format(Long.valueOf(parts[0]) * 1000);
 		String token = parts[1];
 		if (token == null || token.equals("-")) {
 			return null;
@@ -233,14 +242,18 @@ public class TransformDailyEvent extends Configured implements Tool {
 		return stringBuffer.toString();
 	}
 
-	public static void main(String[] args) throws Exception {
+	public static void main(String[] args) {
 		if (args == null || args.length != 3) {
 			System.out
 					.println("Usage: UserLogItemCFRecommend <inputPath> <outputPath> <date>");
 			System.exit(-1);
 		}
-		int exitCode = -1;
-		exitCode = ToolRunner.run(new TransformDailyEvent(), args);
-		System.exit(exitCode);
+		try {
+			new TransformDailyEvent().execute(args[0], args[1], args[2]);
+		} catch (Exception e) {
+			System.out.println(e.getMessage());
+			e.printStackTrace();
+		}
+		System.exit(0);
 	}
 }
