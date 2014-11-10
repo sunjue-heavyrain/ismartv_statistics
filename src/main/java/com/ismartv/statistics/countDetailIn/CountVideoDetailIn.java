@@ -1,7 +1,15 @@
 package com.ismartv.statistics.countDetailIn;
 
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileWriter;
+import java.io.InputStreamReader;
+import java.text.NumberFormat;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.conf.Configured;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.DoubleWritable;
 import org.apache.hadoop.io.IntWritable;
@@ -19,6 +27,7 @@ public class CountVideoDetailIn extends Configured implements Tool {
 	public int run(String[] args) throws Exception {
 		String inputPathString = args[0];
 		String outputPathString = args[1];
+		String rundate = args[2];
 		// job1
 		Configuration conf1 = getConf();
 		conf1.set("mapred.compress.map.output", "true");
@@ -65,13 +74,86 @@ public class CountVideoDetailIn extends Configured implements Tool {
 			}
 		}
 
+		if (exitCode == 0) {
+			calcPercentAndWriteLocalDir(new Path(intermediatePathForJob2,
+					"part-r-00000"), FileSystem.get(conf1), rundate);
+		}
+
 		return exitCode;
 	}
 
+	private void calcPercentAndWriteLocalDir(Path hdfsFilePath,
+			FileSystem hdfsFileSystem, String rundate) throws Exception {
+
+		if (!hdfsFileSystem.exists(hdfsFilePath)) {
+			throw new Exception("source hdfs file is not exists");
+		}
+
+		// 格式化double类型的输出
+		NumberFormat numberFormat = NumberFormat.getInstance();
+		numberFormat.setMaximumFractionDigits(2);
+
+		String line = null;
+		int[][] data = new int[12][1];
+		String[] strs = null;
+		BufferedReader bufferedReader = null;
+
+		File localFile = new File("/home/deploy/sj/output/CountVideoDetailIn",
+				rundate);
+		if (!localFile.exists()) {
+			localFile.createNewFile();
+		}
+
+		try (BufferedWriter bufferedWriter = new BufferedWriter(new FileWriter(
+				localFile, false))) {
+
+			bufferedReader = new BufferedReader(new InputStreamReader(
+					hdfsFileSystem.open(hdfsFilePath)));
+
+			while ((line = bufferedReader.readLine()) != null) {
+				strs = line.split("\t");
+
+				if (strs.length != 2) {
+					return;
+				}
+				Double index = Double.parseDouble(strs[0]);
+				int value = Integer.parseInt(strs[1]);
+				data[index.intValue()][0] = value;
+			}
+
+			// 计算总数
+			int sum = 0;
+			for (int i = 0; i < 12; i++) {
+				sum += data[i][0];
+			}
+
+			// 计算百分比 并输出
+			for (int j = 0; j < 12; j++) {
+				if (j == 0) {
+					line = "0.5\t";
+				} else {
+					line = j + "\t";
+				}
+				line = line
+						+ data[j][0]
+						+ "\t"
+						+ numberFormat
+								.format((data[j][0] * 100) / (double) sum)
+						+ "%";
+				bufferedWriter.write(line);
+				bufferedWriter.newLine();
+			}
+		} finally {
+			if (bufferedReader != null) {
+				bufferedReader.close();
+			}
+		}
+	}
+
 	public static void main(String[] args) throws Exception {
-		if (args == null || args.length != 2) {
+		if (args == null || args.length != 3) {
 			System.out
-					.println("Usage: CountVideoDetailIn <inputPath> <outputPath> ");
+					.println("Usage: CountVideoDetailIn <inputPath> <outputPath> <rundate>");
 			System.exit(-1);
 		}
 		int exitCode = -1;
