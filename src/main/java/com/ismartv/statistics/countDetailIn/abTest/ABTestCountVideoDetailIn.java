@@ -3,10 +3,10 @@ package com.ismartv.statistics.countDetailIn.abTest;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
-import java.io.FileWriter;
 import java.io.InputStreamReader;
 import java.text.NumberFormat;
 
+import org.apache.commons.io.output.FileWriterWithEncoding;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.conf.Configured;
 import org.apache.hadoop.fs.FileSystem;
@@ -105,8 +105,8 @@ public class ABTestCountVideoDetailIn extends Configured implements Tool {
 			localFile.createNewFile();
 		}
 
-		try (BufferedWriter bufferedWriter = new BufferedWriter(new FileWriter(
-				localFile, false))) {
+		try (BufferedWriter bufferedWriter = new BufferedWriter(
+				new FileWriterWithEncoding(localFile, "UTF-8", false))) {
 
 			bufferedReader = new BufferedReader(new InputStreamReader(
 					hdfsFileSystem.open(hdfsFilePath)));
@@ -142,7 +142,7 @@ public class ABTestCountVideoDetailIn extends Configured implements Tool {
 			}
 
 			// 计算百分比 并输出
-			line = new String(" \t推荐排序 \t默认排序".getBytes("UTF-8"));
+			line = " \t推荐排序 \t默认排序";
 			bufferedWriter.write(line);
 			bufferedWriter.newLine();
 			for (int j = 0; j < 12; j++) {
