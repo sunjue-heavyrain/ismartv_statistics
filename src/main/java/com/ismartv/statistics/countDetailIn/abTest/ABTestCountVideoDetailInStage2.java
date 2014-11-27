@@ -1,8 +1,6 @@
 package com.ismartv.statistics.countDetailIn.abTest;
 
 import java.io.IOException;
-
-import org.apache.hadoop.io.DoubleWritable;
 import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.Text;
@@ -38,8 +36,6 @@ public class ABTestCountVideoDetailInStage2 {
 			extends
 			org.apache.hadoop.mapreduce.Reducer<Text, IntWritable, Text, IntWritable> {
 
-		// private Text outputKey = new Text();
-		// private Text outKey = new Text();
 		private IntWritable outValue = new IntWritable();
 
 		@Override
@@ -61,10 +57,6 @@ public class ABTestCountVideoDetailInStage2 {
 			for (IntWritable i : values) {
 				sum += i.get();
 			}
-			// outputKey.set(key.toString() + "\t" + String.valueOf(sum));
-			// context.write(outputKey, NullWritable.get());
-
-			// outKey.set(Double.valueOf(key.toString()));
 			outValue.set(sum);
 			context.write(key, outValue);
 		}

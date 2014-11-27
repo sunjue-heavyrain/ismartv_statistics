@@ -5,6 +5,10 @@ import java.io.BufferedWriter;
 import java.io.File;
 import java.io.InputStreamReader;
 import java.text.NumberFormat;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
 
 import org.apache.commons.io.output.FileWriterWithEncoding;
 import org.apache.hadoop.conf.Configuration;
@@ -79,6 +83,10 @@ public class ABTestCountVideoDetailIn extends Configured implements Tool {
 					"part-r-00000"), FileSystem.get(conf1), rundate);
 		}
 
+		FileSystem fileSystem = FileSystem.get(conf1);
+		fileSystem.deleteOnExit(intermediatePathForJob1);
+		fileSystem.deleteOnExit(intermediatePathForJob2);
+
 		return exitCode;
 	}
 
@@ -94,8 +102,8 @@ public class ABTestCountVideoDetailIn extends Configured implements Tool {
 		numberFormat.setMaximumFractionDigits(2);
 
 		String line = null;
-		int[][] dataA = new int[12][1];
-		int[][] dataB = new int[12][1];
+		List<CountVideoOutput> dataA = new ArrayList<CountVideoOutput>();
+		List<CountVideoOutput> dataB = new ArrayList<CountVideoOutput>();
 		String[] strs = null;
 		BufferedReader bufferedReader = null;
 
@@ -112,8 +120,9 @@ public class ABTestCountVideoDetailIn extends Configured implements Tool {
 					hdfsFileSystem.open(hdfsFilePath)));
 
 			String mod = null;
-			String time = null;
+			int time;
 			String[] othorStrs = null;
+			int count;
 			while ((line = bufferedReader.readLine()) != null) {
 				strs = line.split("\t");
 
@@ -122,53 +131,96 @@ public class ABTestCountVideoDetailIn extends Configured implements Tool {
 				}
 				othorStrs = strs[0].split(":");
 				mod = othorStrs[0];
-				time = othorStrs[1];
-				Double index = Double.parseDouble(time);
-				int value = Integer.parseInt(strs[1]);
+				time = Integer.parseInt(othorStrs[1]);
+				count = Integer.parseInt(strs[1]);
 				if (mod.equals("A")) {
-					dataA[index.intValue()][0] = value;
+					dataA.add(new CountVideoOutput(time, count));
 				} else {
-					dataB[index.intValue()][0] = value;
+					dataB.add(new CountVideoOutput(time, count));
 				}
 
 			}
 
+			// 排序
+			Collections.sort(dataA, new Comparator<CountVideoOutput>() {
+				@Override
+				public int compare(CountVideoOutput o1, CountVideoOutput o2) {
+					return o1.getTime().compareTo(o2.getTime());
+				}
+			});
+
+			Collections.sort(dataB, new Comparator<CountVideoOutput>() {
+				@Override
+				public int compare(CountVideoOutput o1, CountVideoOutput o2) {
+					return o1.getTime().compareTo(o2.getTime());
+				}
+			});
+
 			// 计算总数
 			int sumA = 0;
 			int sumB = 0;
-			for (int i = 0; i < 12; i++) {
-				sumA += dataA[i][0];
-				sumB += dataB[i][0];
+			for (int i = 0; i < dataA.size(); i++) {
+				sumA += dataA.get(i).getCount();
+				sumB += dataB.get(i).getCount();
 			}
 
 			// 计算百分比 并输出
 			line = " \t推荐排序 \t默认排序";
 			bufferedWriter.write(line);
 			bufferedWriter.newLine();
-			for (int j = 0; j < 12; j++) {
-				if (j == 0) {
-					line = "0.5\t";
-				} else {
-					line = j + "\t";
-				}
-				line = line
-						+ dataA[j][0]
+			for (int j = 0; j < dataA.size(); j++) {
+
+				line = dataA.get(j).getTime()
 						+ "\t"
-						+ numberFormat.format((dataA[j][0] * 100)
+						+ dataA.get(j).getCount()
+						+ "\t"
+						+ numberFormat.format((dataA.get(j).getCount() * 100)
 								/ (double) sumA)
 						+ "%\t"
-						+ dataB[j][0]
+						+ dataB.get(j).getCount()
 						+ "\t"
-						+ numberFormat.format((dataB[j][0] * 100)
+						+ numberFormat.format((dataB.get(j).getCount() * 100)
 								/ (double) sumB) + "%";
 				bufferedWriter.write(line);
 				bufferedWriter.newLine();
 			}
+
 		} finally {
 			if (bufferedReader != null) {
 				bufferedReader.close();
 			}
 		}
+	}
+
+	// 输出本地时使用的对象
+	static class CountVideoOutput {
+		private int time;
+		private int count;
+
+		public CountVideoOutput() {
+		}
+
+		public CountVideoOutput(int time, int count) {
+			this.time = time;
+			this.count = count;
+		}
+
+		public Integer getTime() {
+			return time;
+		}
+
+		public void setTime(int time) {
+			this.time = time;
+		}
+
+		public int getCount() {
+			return count;
+		}
+
+		public void setCount(int count) {
+			this.count = count;
+		}
+
 	}
 
 	public static void main(String[] args) throws Exception {

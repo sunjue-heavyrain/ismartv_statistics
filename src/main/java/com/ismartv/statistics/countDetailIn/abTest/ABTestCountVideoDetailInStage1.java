@@ -134,7 +134,7 @@ public class ABTestCountVideoDetailInStage1 {
 			}
 
 			String value = null;
-			double time = -1;
+			int time = -1;
 			for (Text t : values) {
 				value = t.toString();
 
@@ -166,8 +166,9 @@ public class ABTestCountVideoDetailInStage1 {
 			}
 		}
 
-		private static double calcTimeInterval(String ts, String anothorTs)
+		private static int calcTimeInterval(String ts, String anothorTs)
 				throws InterruptedException {
+			// 后面事件对应的ts必须大于前面事件的ts
 			if (ts != null && ts.compareTo(anothorTs) < 0) {
 				throw new InterruptedException(
 						"ts must equalt or bigger then anothorTs");
@@ -183,12 +184,15 @@ public class ABTestCountVideoDetailInStage1 {
 			// 毫秒 转 秒
 			timeInterval = timeInterval / 1000;
 
-			if (timeInterval <= 30) {
-				return 0.5;
+			if (timeInterval <= 60) {
+				if (timeInterval == 0) {
+					return 10;
+				}
+				return (int) (Math.ceil(timeInterval / 10.0) * 10);
 			} else if (timeInterval > 600) {
-				return 11;
+				return 660;
 			} else {
-				return (int) Math.ceil((double) timeInterval / 60.0);
+				return (int) (Math.ceil(timeInterval / 60.0) * 60);
 			}
 		}
 	}
